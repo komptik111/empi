@@ -13,6 +13,7 @@ marekkomp/nowe_repo10.2025_allegrocsv_na_XML — nie modyfikujemy ich,
 """
 
 import os
+import re
 import tempfile
 import threading
 import xml.etree.ElementTree as ET
@@ -21,6 +22,12 @@ import pandas as pd
 
 SHEET_NAME = "Szablon"
 HEADER_ROW_IDX = 3  # nagłówki w wierszu 4 (0-based -> 3)
+
+# Odpowiednik makra VBA OznaczZakonczone: kolumny C / H / M w szablonie Allegro.
+COL_ID = "ID oferty"
+COL_STATUS = "Status oferty"
+COL_QTY = "Liczba sztuk"
+ENDED_STATUS = "Zakończona"
 
 # convert_empi trzyma ścieżkę roboczą w module-level OUTPUT_DIR i zapisuje tam
 # _temp_base.xml. Podmieniamy ją na katalog tymczasowy, więc konwersje nie mogą
@@ -72,6 +79,55 @@ def merge_frames(frames: list[pd.DataFrame]) -> pd.DataFrame:
         prepared.append(df[column_order])
 
     return pd.concat(prepared, axis=0, ignore_index=True)
+
+
+def parse_ids(text: str) -> list[str]:
+    """
+    Wyciąga numery ofert z wklejonego tekstu — obojętne, czy rozdzielone
+    przecinkami, spacjami, czy każdy w nowej linii. Duplikaty pomijane.
+    """
+    if not text:
+        return []
+    out, seen = [], set()
+    for part in re.split(r"\D+", text):
+        if part and part not in seen:
+            seen.add(part)
+            out.append(part)
+    return out
+
+
+def mark_ended(
+    merged: pd.DataFrame, ids: list[str]
+) -> tuple[pd.DataFrame, list[str], list[str]]:
+    """
+    To samo, co makro VBA OznaczZakonczone: dla podanych ID ustawia
+    status "Zakończona" i 0 sztuk. Reszta łańcucha sama wygasi te oferty.
+
+    Zwraca (tabela, znalezione ID, ID nieobecne w plikach).
+    """
+    if not ids:
+        return merged, [], []
+
+    brakujace = [c for c in (COL_ID, COL_STATUS, COL_QTY) if c not in merged.columns]
+    if brakujace:
+        raise PipelineError(
+            "W plikach brakuje kolumn potrzebnych do wygaszania ofert: "
+            + ", ".join(brakujace)
+        )
+
+    key = merged[COL_ID].astype(str).str.strip()
+    mask = key.isin(set(ids))
+
+    merged = merged.copy()
+    merged.loc[mask, COL_STATUS] = ENDED_STATUS
+    merged.loc[mask, COL_QTY] = "0"
+
+    znalezione = set(key[mask])
+    return (
+        merged,
+        [i for i in ids if i in znalezione],
+        [i for i in ids if i not in znalezione],
+    )
 
 
 def write_template_xlsx(merged: pd.DataFrame, path: str) -> None:
@@ -216,20 +272,28 @@ def drop_empty_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def laptop_categories(df: pd.DataFrame) -> list[str]:
-    """Kategorie wyglądające na laptopy (po convert_empi to 'Laptopy poleasingowe')."""
+    """
+    Kategorie z samymi laptopami — po convert_empi to 'Laptopy poleasingowe'.
+
+    Dopasowanie po POCZĄTKU nazwy, nie po fragmencie. Szukanie 'laptop'
+    w środku łapałoby też 'Części do laptopów' i 'Akcesoria (Laptop, PC)',
+    a te do EMPIK nie idą.
+    """
     if "Kategoria" not in df.columns:
         return []
     cats = df["Kategoria"].dropna().astype(str).str.strip().unique().tolist()
-    return sorted([c for c in cats if "laptop" in c.lower()])
+    return sorted([c for c in cats if c.lower().startswith("laptop")])
 
 
 # --------------------------------------------------------------------------
 # Całość w jednym wywołaniu
 # --------------------------------------------------------------------------
-def run_pipeline(uploaded_files) -> tuple[bytes, pd.DataFrame]:
+def run_pipeline(uploaded_files, ended_ids=()) -> tuple[bytes, pd.DataFrame, dict]:
     """
     uploaded_files: lista obiektów ze Streamlita (mają .name i są file-like).
-    Zwraca (empi.xml jako bytes, tabela ofert).
+    ended_ids: numery ofert do wygaszenia (zastępuje makro VBA).
+
+    Zwraca (empi.xml jako bytes, tabela ofert, informacje o wygaszaniu).
     """
     frames = []
     for f in uploaded_files:
@@ -240,6 +304,9 @@ def run_pipeline(uploaded_files) -> tuple[bytes, pd.DataFrame]:
     if merged.empty:
         raise PipelineError("Po scaleniu nie ma żadnych wierszy z ofertami.")
 
+    merged, wygaszone, nieznalezione = mark_ended(merged, list(ended_ids))
+    info = {"wygaszone": wygaszone, "nieznalezione": nieznalezione}
+
     xml_bytes = build_empi_xml(merged)
     df = xml_to_dataframe(xml_bytes)
     if df.empty:
@@ -247,4 +314,4 @@ def run_pipeline(uploaded_files) -> tuple[bytes, pd.DataFrame]:
             "Konwerter nie znalazł ofert. Sprawdź, czy pliki mają arkusz "
             "'Szablon' z nagłówkami w wierszu 4 (m.in. 'ID oferty', 'Tytuł oferty')."
         )
-    return xml_bytes, df
+    return xml_bytes, df, info
