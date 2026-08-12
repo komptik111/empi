@@ -15,6 +15,7 @@ from pipeline import (
     PipelineError,
     drop_empty_columns,
     laptop_categories,
+    parse_ids,
     run_pipeline,
 )
 
@@ -28,14 +29,14 @@ st.caption(
 
 
 @st.cache_data(show_spinner=False, max_entries=3)
-def _process(payload: list[tuple[str, bytes]]):
+def _process(payload: list[tuple[str, bytes]], ended_ids: tuple[str, ...]):
     """Cache po zawartości plików — ponowne kliknięcie nie liczy wszystkiego od nowa."""
     files = []
     for name, data in payload:
         buf = BytesIO(data)
         buf.name = name
         files.append(buf)
-    return run_pipeline(files)
+    return run_pipeline(files, ended_ids)
 
 
 @st.cache_data(show_spinner=False)
@@ -58,8 +59,9 @@ if not uploaded:
             """
 1. Pobierz z Allegro pliki Excel z ofertami (jeden lub kilka).
 2. Przeciągnij je wszystkie tutaj.
-3. Poczekaj kilkanaście sekund.
-4. Kliknij **Pobierz XLSX** — to jest plik pod EMPIK.
+3. Jeśli któreś oferty mają być wygaszone — wklej ich numery w pole poniżej.
+4. Poczekaj kilkanaście sekund.
+5. Kliknij **Pobierz XLSX** — to jest plik pod EMPIK.
 
 Nic nie jest nigdzie zapisywane. Pliki żyją tylko przez czas przetwarzania.
             """
@@ -68,11 +70,29 @@ Nic nie jest nigdzie zapisywane. Pliki żyją tylko przez czas przetwarzania.
 
 st.write(f"Wgrane pliki: **{len(uploaded)}** — {', '.join(f.name for f in uploaded)}")
 
+with st.expander("Oferty do wygaszenia (opcjonalne)", expanded=False):
+    st.caption(
+        "Wklej numery ofert, które mają trafić do pliku jako zakończone, 0 sztuk — "
+        "niezależnie od tego, co mówi Allegro. Zastępuje makro VBA. "
+        "Przecinki, spacje albo każdy numer w nowej linii — bez różnicy."
+    )
+    ended_raw = st.text_area(
+        "Numery ofert",
+        value="",
+        height=110,
+        placeholder="17897523407, 16998056567, 16820940558",
+        label_visibility="collapsed",
+    )
+
+ended_ids = tuple(parse_ids(ended_raw))
+if ended_ids:
+    st.caption(f"Do wygaszenia: {len(ended_ids)} numerów.")
+
 payload = [(f.name, f.getvalue()) for f in uploaded]
 
 try:
     with st.spinner("Scalam, konwertuję i przygotowuję oferty…"):
-        xml_bytes, df = _process(payload)
+        xml_bytes, df, info = _process(payload, ended_ids)
 except PipelineError as e:
     st.error(str(e))
     st.stop()
@@ -81,6 +101,18 @@ except Exception as e:  # noqa: BLE001 — użytkownik ma zobaczyć powód, nie 
     st.stop()
 
 st.success(f"Gotowe. Ofert w pliku: {len(df):,}")
+
+if ended_ids:
+    st.info(f"Wygaszono ofert: **{len(info['wygaszone'])}** z {len(ended_ids)} podanych.")
+    if info["nieznalezione"]:
+        with st.expander(
+            f"⚠️ {len(info['nieznalezione'])} numerów nie ma w wgranych plikach"
+        ):
+            st.caption(
+                "Te oferty nie występują w eksporcie z Allegro — najpewniej zostały "
+                "już wcześniej usunięte. Możesz je wykreślić ze swojej listy."
+            )
+            st.code("\n".join(info["nieznalezione"]))
 
 # ---------------------------------------------------------------- filtry
 st.sidebar.header("Filtry")
