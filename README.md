@@ -14,13 +14,22 @@ sam link do aplikacji.
 
 1. **Scala** wgrane pliki Allegro — arkusz `Szablon`, nagłówki w wierszu 4,
    kolejność kolumn z pierwszego pliku (identycznie jak dotychczasowa scalarka).
-2. **Konwertuje** przez `convert_empi.py` → `empi.xml`. To ten sam plik, który
+2. **Wygasza wskazane oferty** — jeśli wkleisz numery ofert w pole
+   „Oferty do wygaszenia", dostają `Status oferty = Zakończona` i `0` sztuk.
+   To odpowiednik makra VBA `OznaczZakonczone`, które szło na pliku przed
+   wrzuceniem go do `input/`. Różnica: trafia w kolumny po **nagłówkach**,
+   a nie po literach C/H/M, więc dołożenie kolumny przez Allegro nic nie psuje.
+3. **Konwertuje** przez `convert_empi.py` → `empi.xml`. To ten sam plik, który
    wcześniej generowały GitHub Actions: dostępność tylko od 4 szt., kategorie
    z dopiskiem „poleasingowe", stan „Używany" → „Poleasingowy", dyski SSD/HDD
    z pojemnością, gwarancja jako liczba, opis w HTML ze stopką Kompre.pl.
-3. **Rozbija XML na tabelę** i filtruje — domyślnie kategoria z laptopami,
+4. **Rozbija XML na tabelę** i filtruje — domyślnie kategoria z laptopami,
    status „Wszystkie" (czyli to, co ustawiałeś ręcznie w shoperXML).
-4. **Oddaje XLSX** (plus CSV i surowy `empi.xml`, gdyby był potrzebny).
+5. **Oddaje XLSX** (plus CSV i surowy `empi.xml`, gdyby był potrzebny).
+
+Zgodność sprawdzona na prawdziwych danych: ten sam plik wejściowy przepuszczony
+przez aplikację daje `empi.xml` **identyczny co do bajtu** (10 170 895 B,
+2248 ofert) z tym, który wyprodukowały GitHub Actions.
 
 Nic nie jest nigdzie zapisywane — pliki żyją tylko przez czas przetwarzania,
 w katalogu tymczasowym, który jest kasowany po zakończeniu.
