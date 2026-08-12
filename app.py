@@ -58,7 +58,7 @@ if not uploaded:
         st.markdown(
             """
 1. Pobierz z Allegro pliki Excel z ofertami (jeden lub kilka).
-2. Przeciągnij je wszystkie tutaj.
+2. Dodaj jako pierwszy Główne konto!!! potem reszta
 3. Jeśli któreś oferty mają być wygaszone — wklej ich numery w pole poniżej.
 4. Poczekaj kilkanaście sekund.
 5. Kliknij **Pobierz XLSX** — to jest plik pod EMPIK.
